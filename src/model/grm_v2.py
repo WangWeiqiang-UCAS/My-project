@@ -1,25 +1,24 @@
 # src/model/grm_v2.py
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Tuple
 
 
 class LightweightEncoder(nn.Module):
-    """保持与原版相同"""
+    """保持与原版相同."""
 
     def __init__(self, in_channels=128, hidden_channels=128):
         super().__init__()
         self.conv_in = nn.Conv2d(in_channels, hidden_channels, 1)
         self.blocks = nn.Sequential(
-            nn.Conv2d(hidden_channels, hidden_channels, 3, 1, 1,
-                      groups=hidden_channels, bias=False),
+            nn.Conv2d(hidden_channels, hidden_channels, 3, 1, 1, groups=hidden_channels, bias=False),
             nn.BatchNorm2d(hidden_channels),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Conv2d(hidden_channels, hidden_channels, 1, bias=False),
             nn.BatchNorm2d(hidden_channels),
-            nn.LeakyReLU(0.1, inplace=True)
+            nn.LeakyReLU(0.1, inplace=True),
         )
 
     def forward(self, x):
@@ -28,9 +27,7 @@ class LightweightEncoder(nn.Module):
 
 
 class CrossAttentionConditionalDecoder(nn.Module):
-    """
-    基于交叉注意力的条件解码器
-    用 prompt_seq 作为 K, V 来引导特征修复
+    """基于交叉注意力的条件解码器 用 prompt_seq 作为 K, V 来引导特征修复.
     """
 
     def __init__(self, feat_channels=128, prompt_dim=128, num_heads=4):
@@ -53,27 +50,24 @@ class CrossAttentionConditionalDecoder(nn.Module):
 
         # 后续的卷积块
         self.refine_blocks = nn.Sequential(
-            nn.Conv2d(feat_channels, feat_channels, 3, 1, 1,
-                      groups=feat_channels, bias=False),
+            nn.Conv2d(feat_channels, feat_channels, 3, 1, 1, groups=feat_channels, bias=False),
             nn.BatchNorm2d(feat_channels),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Conv2d(feat_channels, feat_channels, 1, bias=False),
             nn.BatchNorm2d(feat_channels),
-            nn.LeakyReLU(0.1, inplace=True)
+            nn.LeakyReLU(0.1, inplace=True),
         )
 
         self.scale = (feat_channels // num_heads) ** -0.5
 
     def forward(
-            self,
-            feature: torch.Tensor,  # (B, C, H, W)
-            prompt_seq: torch.Tensor  # (B, N, D)
+        self,
+        feature: torch.Tensor,  # (B, C, H, W)
+        prompt_seq: torch.Tensor,  # (B, N, D)
     ) -> torch.Tensor:
-        """
-        使用 prompt_seq 通过交叉注意力引导特征修复
-        """
+        """使用 prompt_seq 通过交叉注意力引导特征修复."""
         B, C, H, W = feature.shape
-        _, N, D = prompt_seq.shape
+        _, N, _D = prompt_seq.shape
 
         # 1. 准备 Q, K, V
         Q = self.query_proj(feature)  # (B, C, H, W)
@@ -112,18 +106,10 @@ class CrossAttentionConditionalDecoder(nn.Module):
 
 
 class VQFeatureRefinementModule_V2(nn.Module):
-    """
-    升级版 GRM 模块
-    - 移除内部 VQ (由 SPM 负责)
-    - 使用交叉注意力解码器
+    """升级版 GRM 模块 - 移除内部 VQ (由 SPM 负责) - 使用交叉注意力解码器.
     """
 
-    def __init__(
-            self,
-            channels=128,
-            prompt_dim=128,
-            num_heads=4
-    ):
+    def __init__(self, channels=128, prompt_dim=128, num_heads=4):
         super().__init__()
         self.channels = channels
         self.prompt_dim = prompt_dim
@@ -132,25 +118,23 @@ class VQFeatureRefinementModule_V2(nn.Module):
 
         # 核心改动: 使用交叉注意力解码器
         self.decoder = CrossAttentionConditionalDecoder(
-            feat_channels=channels,
-            prompt_dim=prompt_dim,
-            num_heads=num_heads
+            feat_channels=channels, prompt_dim=prompt_dim, num_heads=num_heads
         )
 
-        print(f"✅ GRM-V2 initialized with Cross-Attention decoder")
+        print("✅ GRM-V2 initialized with Cross-Attention decoder")
         print(f"   - Feature channels: {channels}")
         print(f"   - Prompt dim: {prompt_dim}")
         print(f"   - Num attention heads: {num_heads}")
 
     def forward(
-            self,
-            feature: torch.Tensor,  # (B, C, H, W)
-            prompt_seq: torch.Tensor  # (B, N, D)
-    ) -> Tuple[torch.Tensor, Dict]:
+        self,
+        feature: torch.Tensor,  # (B, C, H, W)
+        prompt_seq: torch.Tensor,  # (B, N, D)
+    ) -> tuple[torch.Tensor, dict]:
         """
         Args:
             feature: 待修复的特征图
-            prompt_seq: 来自 SPM 的离散化提示序列
+            prompt_seq: 来自 SPM 的离散化提示序列.
 
         Returns:
             feature_delta: 特征修复残差
