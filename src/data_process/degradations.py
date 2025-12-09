@@ -1,15 +1,16 @@
 # src/data_process/degradations.py
 
+import math
+import random
+from io import BytesIO
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-import random
-import math
-from io import BytesIO
 from PIL import Image
-import numpy as np
-
 
 # --- 内部辅助函数 (保持不变或新增) ---
+
 
 def _to_batch(image: torch.Tensor) -> torch.Tensor:
     return image.unsqueeze(0) if image.dim() == 3 else image
@@ -35,7 +36,7 @@ def _conv2d_channelwise(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor
 def _make_gaussian_kernel(ks: int, sigma: float) -> torch.Tensor:
     ax = torch.arange(ks, dtype=torch.float32) - (ks - 1) / 2.0
     xx, yy = torch.meshgrid(ax, ax, indexing="xy")
-    kernel = torch.exp(-(xx ** 2 + yy ** 2) / (2 * sigma ** 2))
+    kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
     kernel = kernel / kernel.sum().clamp_min(1e-8)
     return kernel
 
@@ -48,8 +49,8 @@ def _make_motion_kernel(length: int, angle_deg: float) -> torch.Tensor:
     cx = cy = k // 2
     dx, dy = math.cos(angle), math.sin(angle)
     for t_val in torch.linspace(-length / 2, length / 2, steps=length).tolist():
-        x = int(round(cx + t_val * dx))
-        y = int(round(cy + t_val * dy))
+        x = round(cx + t_val * dx)
+        y = round(cy + t_val * dy)
         if 0 <= x < k and 0 <= y < k:
             kernel[y, x] = 1.0
     s = kernel.sum().clamp_min(1.0)
@@ -59,7 +60,7 @@ def _make_motion_kernel(length: int, angle_deg: float) -> torch.Tensor:
 # --- JPEG 压缩的辅助函数 ---
 def _tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
     tensor = tensor.mul(255).byte()
-    return Image.fromarray(tensor.permute(1, 2, 0).cpu().numpy(), 'RGB')
+    return Image.fromarray(tensor.permute(1, 2, 0).cpu().numpy(), "RGB")
 
 
 def _pil_to_tensor(pil_image: Image.Image) -> torch.Tensor:
@@ -68,10 +69,11 @@ def _pil_to_tensor(pil_image: Image.Image) -> torch.Tensor:
 
 # --- 公共退化函数 (已升级) ---
 
+
 # 1. 深度感知的雨 (Advanced Rain)
 def degrade_rain(image: torch.Tensor) -> torch.Tensor:
     bimg = _to_batch(image)
-    _, C, H, W = bimg.shape
+    _, _C, H, W = bimg.shape
     d = bimg.device
 
     output = bimg.clone()
@@ -111,7 +113,7 @@ def degrade_rain(image: torch.Tensor) -> torch.Tensor:
 # 2. 深度感知的雪 (Advanced Snow)
 def degrade_snow(image: torch.Tensor) -> torch.Tensor:
     bimg = _to_batch(image)
-    _, C, H, W = bimg.shape
+    _, _C, H, W = bimg.shape
     d = bimg.device
 
     output = bimg.clone()
@@ -162,8 +164,9 @@ def degrade_cloud(image: torch.Tensor) -> torch.Tensor:
     bimg = _to_batch(image)
     _, C, H, W = bimg.shape
     d = bimg.device
-    noise = F.interpolate(torch.rand(1, 1, max(4, H // 24), max(4, W // 24), device=d), size=(H, W), mode="bilinear",
-                          align_corners=False).clamp(0, 1)
+    noise = F.interpolate(
+        torch.rand(1, 1, max(4, H // 24), max(4, W // 24), device=d), size=(H, W), mode="bilinear", align_corners=False
+    ).clamp(0, 1)
     y = torch.linspace(0, 1, H, device=d).view(1, 1, H, 1)
     top_mask = (1 - y).pow(1.5)
     mask = (noise * top_mask).clamp(0, 1)
@@ -171,7 +174,6 @@ def degrade_cloud(image: torch.Tensor) -> torch.Tensor:
     A = torch.ones(1, C, 1, 1, device=d) * random.uniform(0.9, 1.0)
     out = bimg * (1 - strength * mask) + A * (strength * mask)
     return _from_batch(out.clamp(0, 1))
-
 
 
 def degrade_fog(image: torch.Tensor) -> torch.Tensor:
@@ -182,11 +184,12 @@ def degrade_fog(image: torch.Tensor) -> torch.Tensor:
     A = torch.ones(1, C, 1, 1, device=d) * A_val
     yy = torch.linspace(-1, 1, H, device=d).view(1, 1, H, 1).abs()
     xx = torch.linspace(-1, 1, W, device=d).view(1, 1, 1, W).abs()
-    dist = torch.sqrt(yy ** 2 + xx ** 2)
-    height_bias = (torch.linspace(0, 1, H, device=d).view(1, 1, H, 1))
+    dist = torch.sqrt(yy**2 + xx**2)
+    height_bias = torch.linspace(0, 1, H, device=d).view(1, 1, H, 1)
     mask = (1 - dist) * 0.5 + (1 - height_bias) * 0.5
-    noise = F.interpolate(torch.rand(1, 1, max(4, H // 20), max(4, W // 20), device=d), size=(H, W), mode="bilinear",
-                          align_corners=False).clamp(0, 1)
+    noise = F.interpolate(
+        torch.rand(1, 1, max(4, H // 20), max(4, W // 20), device=d), size=(H, W), mode="bilinear", align_corners=False
+    ).clamp(0, 1)
     fog_mask = (0.6 * mask + 0.4 * noise).clamp(0, 1)
     strength = random.uniform(0.4, 0.9)
     t = (1 - strength * fog_mask).clamp(0.1, 1.0)
@@ -196,7 +199,6 @@ def degrade_fog(image: torch.Tensor) -> torch.Tensor:
 
 def degrade_lowlight(image: torch.Tensor) -> torch.Tensor:
     bimg = _to_batch(image)
-    d = bimg.device
 
     # 调整1：收窄 scale 范围，避免过暗
     scale = random.uniform(0.35, 0.65)
@@ -244,7 +246,7 @@ def degrade_dirty_lens(image: torch.Tensor) -> torch.Tensor:
         cx, cy = random.uniform(0.0, 1.0), random.uniform(0.0, 1.0)
         r = random.uniform(0.02, 0.12)
         dist = torch.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-        spot = torch.exp(-(dist ** 2) / (2 * (r ** 2)))
+        spot = torch.exp(-(dist**2) / (2 * (r**2)))
         spot *= random.uniform(0.3, 1.0)
         mask = torch.maximum(mask, spot)
     ks = random.choice([9, 11, 13, 15])
@@ -258,7 +260,7 @@ def degrade_dirty_lens(image: torch.Tensor) -> torch.Tensor:
     if random.random() < 0.5:
         yy = torch.linspace(-1, 1, H, device=d).view(H, 1).expand(H, W)
         xx = torch.linspace(-1, 1, W, device=d).view(1, W).expand(H, W)
-        vign = 1 - 0.3 * (xx ** 2 + yy ** 2)
+        vign = 1 - 0.3 * (xx**2 + yy**2)
         vign = vign.clamp(0.5, 1.0).view(1, 1, H, W)
         out = (out * vign).clamp(0, 1)
     return _from_batch(out.clamp(0, 1))
@@ -281,15 +283,13 @@ ALL_DEGRADATIONS = {
 # 定义互斥规则
 # 每个集合内的元素是互斥的，即一次复合退化中最多只能出现一个。
 EXCLUSION_GROUPS = [
-    {'rain', 'snow', 'fog', 'cloud'},  # 天气条件互斥
-    {'lowlight', 'cloud', 'fog'}  # 光照条件与部分天气互斥
+    {"rain", "snow", "fog", "cloud"},  # 天气条件互斥
+    {"lowlight", "cloud", "fog"},  # 光照条件与部分天气互斥
 ]
 
 
 def apply_mixed_degradations(image: torch.Tensor, k: int = 3) -> torch.Tensor:
-    """
-    随机选择 1 到 k 种退化，并按随机顺序应用。
-    此版本会检查互斥规则，以避免生成不合逻辑的场景。
+    """随机选择 1 到 k 种退化，并按随机顺序应用。 此版本会检查互斥规则，以避免生成不合逻辑的场景。.
     """
     num_to_apply = random.randint(1, k)
 
@@ -328,5 +328,3 @@ def apply_mixed_degradations(image: torch.Tensor, k: int = 3) -> torch.Tensor:
         degraded_image = ALL_DEGRADATIONS[name](degraded_image)
 
     return degraded_image.clamp(0, 1)
-
-

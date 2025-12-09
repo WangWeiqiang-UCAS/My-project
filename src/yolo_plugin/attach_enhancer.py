@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Attach GeneralPurposeEnhancer_V2 to a YOLOv8 model (Detect head) with optional profiling.
 
@@ -19,10 +18,11 @@ Usage:
 """
 
 from __future__ import annotations
-import types
-from typing import Optional, Dict, Any, List
 
 import time
+import types
+from typing import Any
+
 import torch
 import torch.nn as nn
 
@@ -65,8 +65,8 @@ def _sync_module_device_dtype(module: nn.Module, ref: torch.Tensor):
     if p is None:
         return
 
-    need_move = (p.device != ref.device)
-    need_cast = (p.dtype != ref.dtype)
+    need_move = p.device != ref.device
+    need_cast = p.dtype != ref.dtype
 
     if need_move and need_cast:
         module.to(device=ref.device, dtype=ref.dtype)
@@ -78,23 +78,22 @@ def _sync_module_device_dtype(module: nn.Module, ref: torch.Tensor):
 
 class YOLOEnhancerState:
     def __init__(self):
-        self.cached_image: Optional[torch.Tensor] = None
-        self.last_info: Optional[Dict[str, Any]] = None
+        self.cached_image: torch.Tensor | None = None
+        self.last_info: dict[str, Any] | None = None
         self.synced: bool = False
-        self.last_profiling: Optional[Dict[str, Any]] = None
+        self.last_profiling: dict[str, Any] | None = None
 
 
 def attach_enhancer_to_yolov8(
-    yolo: "YOLO",
+    yolo: YOLO,
     img_size: int = 640,
-    pretrained_path: Optional[str] = None,
+    pretrained_path: str | None = None,
     freeze: bool = True,
     verbose: bool = True,
     enable_profiling: bool = True,
     profiling_warmup: int = 1,
 ):
-    """
-    Attach the enhancer to a loaded YOLO model.
+    """Attach the enhancer to a loaded YOLO model.
 
     Args:
         yolo: YOLO instance
@@ -127,12 +126,9 @@ def attach_enhancer_to_yolov8(
     # 3) monkey-patch Detect.forward
     orig_forward = detect.forward
 
-    def enhanced_detect_forward(self, features: List[torch.Tensor], *args, **kwargs):
-        """
-        Replaces Detect.forward to:
-          - optionally profile SPM and GRM
-          - call enhancer to get enhanced features
-          - pass enhanced features to original Detect.forward
+    def enhanced_detect_forward(self, features: list[torch.Tensor], *args, **kwargs):
+        """Replaces Detect.forward to: - optionally profile SPM and GRM - call enhancer to get enhanced features - pass
+        enhanced features to original Detect.forward.
         """
         # If no cached image (very unlikely), just call original forward
         if state.cached_image is None:
@@ -156,7 +152,8 @@ def attach_enhancer_to_yolov8(
                 pass
 
         device = state.cached_image.device
-        use_cuda = (device.type == "cuda")
+        use_cuda = device.type == "cuda"
+
         def _sync_cuda():
             if use_cuda:
                 torch.cuda.synchronize()
@@ -214,13 +211,15 @@ def attach_enhancer_to_yolov8(
                     encdec_ms = (t_encdec1 - t_encdec0) * 1000.0
                     out_proj_ms = (t_out1 - t_out0) * 1000.0
                     total_layer_ms = in_proj_ms + encdec_ms + out_proj_ms
-                    grm_layer_times.append({
-                        "layer": i,
-                        "in_proj_ms": in_proj_ms,
-                        "encdec_ms": encdec_ms,
-                        "out_proj_ms": out_proj_ms,
-                        "total_layer_ms": total_layer_ms
-                    })
+                    grm_layer_times.append(
+                        {
+                            "layer": i,
+                            "in_proj_ms": in_proj_ms,
+                            "encdec_ms": encdec_ms,
+                            "out_proj_ms": out_proj_ms,
+                            "total_layer_ms": total_layer_ms,
+                        }
+                    )
                     enhanced_feats.append(fmap + refined)
 
                 _sync_cuda()
@@ -246,10 +245,14 @@ def attach_enhancer_to_yolov8(
                 if runs >= warmup_runs:
                     # Print a compact summary
                     try:
-                        print(f"[Enhancer Profiling] SPM={profiling['spm_ms']:.1f}ms GRM={profiling['grm_ms']:.1f}ms "
-                              f"Detect={profiling['detect_ms']:.1f}ms Total≈{profiling['total_ms']:.1f}ms")
+                        print(
+                            f"[Enhancer Profiling] SPM={profiling['spm_ms']:.1f}ms GRM={profiling['grm_ms']:.1f}ms "
+                            f"Detect={profiling['detect_ms']:.1f}ms Total≈{profiling['total_ms']:.1f}ms"
+                        )
                         for lt in profiling["grm_per_layer_ms"]:
-                            print(f"  Layer{lt['layer']}: in_proj={lt['in_proj_ms']:.1f}ms encdec={lt['encdec_ms']:.1f}ms out_proj={lt['out_proj_ms']:.1f}ms total={lt['total_layer_ms']:.1f}ms")
+                            print(
+                                f"  Layer{lt['layer']}: in_proj={lt['in_proj_ms']:.1f}ms encdec={lt['encdec_ms']:.1f}ms out_proj={lt['out_proj_ms']:.1f}ms total={lt['total_layer_ms']:.1f}ms"
+                            )
                     except Exception:
                         pass
                 return res
@@ -285,17 +288,17 @@ def attach_enhancer_to_yolov8(
     return yolo
 
 
-def get_last_enhancer_info(yolo: "YOLO") -> Optional[Dict[str, Any]]:
+def get_last_enhancer_info(yolo: YOLO) -> dict[str, Any] | None:
     state: YOLOEnhancerState = getattr(yolo, "enhancer_state", None)
     return None if state is None else state.last_info
 
 
-def get_last_enhancer_profiling(yolo: "YOLO") -> Optional[Dict[str, Any]]:
+def get_last_enhancer_profiling(yolo: YOLO) -> dict[str, Any] | None:
     state: YOLOEnhancerState = getattr(yolo, "enhancer_state", None)
     return None if state is None else state.last_profiling
 
 
-def set_enhancer_trainable(yolo: "YOLO", trainable: bool = False):
+def set_enhancer_trainable(yolo: YOLO, trainable: bool = False):
     enh: nn.Module = getattr(yolo, "enhancer", None)
     if enh is None:
         raise RuntimeError("尚未 attach_enhancer_to_yolov8。")
