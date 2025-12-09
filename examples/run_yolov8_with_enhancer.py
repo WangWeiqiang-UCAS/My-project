@@ -1,11 +1,13 @@
-# -*- coding: utf-8 -*-
 # 最小可用示例：把增强器插到 YOLOv8n 上做预测或训练
-import torch
 from pathlib import Path
-from ultralytics import YOLO
-from src.yolo_plugin.attach_enhancer import attach_enhancer_to_yolov8, get_last_enhancer_info
+
 import torch
+
+from src.yolo_plugin.attach_enhancer import attach_enhancer_to_yolov8, get_last_enhancer_info
+from ultralytics import YOLO
+
 print("Using device:", "CUDA" if torch.cuda.is_available() else "CPU")
+
 
 def main():
     # 1) 加载 YOLOv8n（可用 .pt 权重或 .yaml）
@@ -19,11 +21,11 @@ def main():
         yolo,
         img_size=640,
         pretrained_path=str(pretrained_path),  # 传入 str(pretrained_path) 或直接传 Path 也可
-        freeze=True
+        freeze=True,
     )
 
     # 4) 预测
-    results = yolo.predict(source=r"D:\code_data\python\ultralytics-main\ultralytics\assets\bus.jpg", imgsz=640, conf=0.25)
+    yolo.predict(source=r"D:\code_data\python\ultralytics-main\ultralytics\assets\bus.jpg", imgsz=640, conf=0.25)
     info = get_last_enhancer_info(yolo)
     if info is not None:
         print("Enhancer info keys:", list(info.keys()))
@@ -33,6 +35,7 @@ def main():
 
     # 5) 训练（示例：coco128）
     # yolo.train(data="coco128.yaml", imgsz=640, epochs=10, batch=16)
+
 
 if __name__ == "__main__":
     torch.backends.cudnn.benchmark = True
